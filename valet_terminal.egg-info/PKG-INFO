@@ -1,0 +1,66 @@
+Metadata-Version: 2.4
+Name: valet-terminal
+Version: 0.1.0
+Summary: A premium, modern custom terminal and personal assistant.
+Author: Aaryan Pradhan
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: textual>=0.52.0
+Requires-Dist: rich>=13.7.0
+Requires-Dist: psutil>=5.9.8
+Requires-Dist: gitpython>=3.1.41
+Requires-Dist: groq
+Requires-Dist: requests
+
+# 🎩 Valet Terminal
+
+> A premium, aesthetic, modern custom terminal and personal assistant.
+
+Valet is an elegant terminal interface built with Python and Textual. It gives you a calm, intelligent, slightly sarcastic, nonchalant, and fiercely loyal personal assistant right in your terminal. Designed with a minimal, dark, cyber-aesthetic, Valet bridges the gap between system management and AI-powered interactions.
+
+## ✨ Features
+
+- **Beautiful TUI:** Built with Textual for a clean, modern, and fluid terminal UI.
+- **System Monitoring:** Live updates of CPU, RAM, Disk, and Network usage.
+- **Smart Assistant:** Ready for local LLM (Ollama) or cloud (OpenAI) integrations.
+- **Command System:** Natural language parsing combined with explicit commands (`todo`, `git`, `status`, `clear`).
+- **Persistent Memory:** Remembers your tasks and preferences across sessions.
+- **Git Awareness:** Instantly check repository status from your command line.
+
+## 🚀 Installation
+
+Ensure you have Python 3.11+ installed.
+
+```bash
+pip install valet-terminal
+```
+*(Or install locally by cloning the repo and running `pip install -e .`)*
+
+## 🛠️ Usage
+
+Simply type:
+```bash
+valet
+```
+
+### Built-in Commands
+- `help` - Show available commands.
+- `status` - Print a quick system status overview.
+- `todo [list|add <item>|clear]` - Manage your tasks.
+- `git` - Check the status of the current git repository.
+- `clear` (or `Ctrl+L`) - Clear the interface.
+- `roast` - Have Valet humble you.
+- `exit` (or `Ctrl+C`) - Quit Valet.
+
+## ⚙️ Configuration
+
+Configuration is automatically created at `~/.config/valet/config.json`. You can tweak the theme, prompt style, and assistant name.
+
+## 🤝 Contributing
+
+Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
+
+## 📜 License
+
+MIT

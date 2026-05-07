@@ -1,0 +1,17 @@
+README.md
+pyproject.toml
+valet/__init__.py
+valet/app.py
+valet/assistant.py
+valet/commands.py
+valet/config.py
+valet/main.py
+valet/monitor.py
+valet/ui/__init__.py
+valet/ui/components.py
+valet_terminal.egg-info/PKG-INFO
+valet_terminal.egg-info/SOURCES.txt
+valet_terminal.egg-info/dependency_links.txt
+valet_terminal.egg-info/entry_points.txt
+valet_terminal.egg-info/requires.txt
+valet_terminal.egg-info/top_level.txt

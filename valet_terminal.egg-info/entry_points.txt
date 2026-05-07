@@ -1,0 +1,2 @@
+[console_scripts]
+valet = valet.main:cli

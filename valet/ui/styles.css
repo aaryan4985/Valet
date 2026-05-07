@@ -1,0 +1,42 @@
+App, Screen, RichLog, Container {
+    background: transparent;
+    color: #e0e0e0;
+}
+
+#main-area {
+    width: 1fr;
+    height: 100%;
+}
+
+#terminal-log {
+    width: 100%;
+    height: 1fr;
+    padding: 1 2;
+    background: transparent;
+}
+
+#input-container {
+    dock: bottom;
+    height: 3;
+    background: rgba(22, 22, 27, 0.8);
+    border-top: solid #2c2c35;
+    layout: horizontal;
+}
+
+#prompt {
+    width: auto;
+    content-align: center middle;
+    color: #a0a0ff;
+    padding: 0 1;
+}
+
+#command-input {
+    width: 1fr;
+    border: none;
+    background: transparent;
+    color: #ffffff;
+}
+
+#command-input:focus {
+    border: none;
+}
