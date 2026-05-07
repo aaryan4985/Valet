@@ -30,10 +30,18 @@ class ValetApp(App):
     def __init__(self):
         super().__init__()
         self.user_name = config_manager.config.get("user_name", "Aaryan").lower()
-        self.prompt_prefix = f"[bold green]{self.user_name}@valet[/] [bold blue]~[/] $ "
+        self.prompt_prefix = ""
         self.log_widget = RichLog(id="terminal-log", markup=True, wrap=True)
         self.original_wallpaper = None
         self.original_opacity = None
+
+    def update_prompt(self) -> None:
+        cwd = os.getcwd()
+        self.prompt_prefix = f"[bold green]{self.user_name}@valet[/] [bold blue]{cwd}[/] $ "
+        try:
+            self.query_one("#prompt").update(self.prompt_prefix)
+        except Exception:
+            pass
 
     def compose(self) -> ComposeResult:
         with Container(id="main-area"):
@@ -43,47 +51,15 @@ class ValetApp(App):
                 yield Input(id="command-input")
 
     def on_mount(self) -> None:
+        self.update_prompt()
         self.query_one(Input).focus()
         
         # Backup and set wallpaper
         atexit.register(self.restore_wallpaper)
         self.backup_and_set_wallpaper()
-
-        self.generate_startup()
-
-    @work(exclusive=True, thread=True)
-    def generate_startup(self) -> None:
-        """Fetch the smart startup sequence in background."""
-        stats = get_system_stats()
         
-        logo = (
-            "[cyan]"
-            "      /\\      \n"
-            "     /  \\     \n"
-            "    /____\\    \n"
-            "   /      \\   \n"
-            "  /        \\  \n"
-            "[/cyan]"
-        )
-        
-        neofetch = (
-            f"{logo}\n"
-            f"[bold green]{self.user_name}@valet[/]\n"
-            f"-------------------\n"
-            f"[bold cyan]OS[/]: Arch Linux (Simulated)\n"
-            f"[bold cyan]Uptime[/]: {stats['uptime']}\n"
-            f"[bold cyan]CPU[/]: {stats['cpu_percent']}%\n"
-            f"[bold cyan]RAM[/]: {stats['ram_used']} / {stats['ram_total']}\n"
-            f"[bold cyan]Disk[/]: {stats['disk_free']} Free\n"
-            f"[bold cyan]Weather[/]: {stats['weather']}\n"
-        )
-        
-        greeting = "System ready."
-        self.call_from_thread(self.show_startup_greeting, neofetch, greeting)
-
-    def show_startup_greeting(self, neofetch: str, greeting: str) -> None:
-        self.log_widget.write(neofetch)
-        self.log_widget.write(f"\n[italic]{greeting}[/italic]\n")
+        # Clean terminal start
+        self.log_widget.write(f"Valet Terminal v0.1.0\nType commands as normal.\n")
 
     def action_clear_chat(self) -> None:
         self.log_widget.clear()
@@ -144,6 +120,7 @@ class ValetApp(App):
                 from pathlib import Path
                 target = " ".join(parts[1:]) if len(parts) > 1 else str(Path.home())
                 os.chdir(target)
+                self.update_prompt()
             except Exception as e:
                 self.log_widget.write(f"[red]cd error:[/] {e}")
             return
