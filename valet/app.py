@@ -167,8 +167,15 @@ class ValetApp(App):
                 # Backup using simple regex extraction
                 bg_match = re.search(r'"backgroundImage"\s*:\s*"([^"]+)"', content)
                 op_match = re.search(r'"backgroundImageOpacity"\s*:\s*([0-9.]+)', content)
-                self.original_wallpaper = bg_match.group(1) if bg_match else None
-                self.original_opacity = op_match.group(1) if op_match else None
+                
+                bg_path = bg_match.group(1) if bg_match else ""
+                # If the current wallpaper is a Valet temporary file, do NOT back it up!
+                if "Temp" in bg_path or "temp" in bg_path.lower() or "voyager" in bg_path:
+                    self.original_wallpaper = None
+                    self.original_opacity = None
+                else:
+                    self.original_wallpaper = bg_path if bg_path else None
+                    self.original_opacity = op_match.group(1) if op_match else None
                 
             api_url = "https://api.github.com/repos/orangci/walls/contents/"
             import requests
