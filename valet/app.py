@@ -114,6 +114,11 @@ class ValetApp(App):
             theme_name = parts[1]
             self.log_widget.write(f"Switched to theme '{theme_name}'.")
             self.app.dark = (theme_name != "light")
+            self.change_wallpaper_thread()
+            return
+        elif cmd == "wallpaper":
+            self.log_widget.write("Fetching new wallpaper from orangci/walls...")
+            self.change_wallpaper_thread()
             return
         elif cmd == "cd":
             try:
@@ -142,6 +147,11 @@ class ValetApp(App):
                 
         except Exception as e:
             self.call_from_thread(self.log_widget.write, f"[red]Execution failed:[/] {e}")
+            
+    @work(exclusive=True, thread=True)
+    def change_wallpaper_thread(self):
+        res = self.change_wallpaper()
+        self.call_from_thread(self.log_widget.write, res)
             
     def backup_and_set_wallpaper(self) -> str:
         """Modify Windows Terminal settings.json safely via regex, backing up the original."""
@@ -188,6 +198,45 @@ class ValetApp(App):
             return ""
         except Exception as e:
             return ""
+
+    def change_wallpaper(self) -> str:
+        """Modify Windows Terminal settings.json safely via regex injection."""
+        import random
+        import urllib.request
+        import json
+        import re
+        import os
+        try:
+            api_url = "https://api.github.com/repos/orangci/walls/contents/"
+            import requests
+            r = requests.get(api_url)
+            if r.status_code == 200:
+                files = [f for f in r.json() if f['name'].endswith(('.png', '.jpg', '.jpeg'))]
+                if files:
+                    choice = random.choice(files)
+                    dl_url = choice['download_url']
+                    img_path = os.path.join(os.environ['TEMP'], choice['name'])
+                    img_path = img_path.replace("\\", "/")
+                    urllib.request.urlretrieve(dl_url, img_path)
+                    
+                    wt_settings_path = os.path.expandvars(r"%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json")
+                    if os.path.exists(wt_settings_path):
+                        with open(wt_settings_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        
+                        content = re.sub(r'"backgroundImage"\s*:\s*".*?"\s*,?\s*', '', content)
+                        content = re.sub(r'"backgroundImageOpacity"\s*:\s*[0-9.]+\s*,?\s*', '', content)
+                        
+                        injection = f'"defaults": {{\n            "backgroundImage": "{img_path}",\n            "backgroundImageOpacity": 1.0,\n'
+                        new_content = re.sub(r'"defaults"\s*:\s*\{', injection, content, count=1)
+                        
+                        with open(wt_settings_path, 'w', encoding='utf-8') as f:
+                            f.write(new_content)
+                            
+                        return f"Terminal wallpaper updated to {choice['name']}!"
+            return "Failed to fetch wallpaper list from GitHub."
+        except Exception as e:
+            return f"Wallpaper change error: {e}"
 
     def restore_wallpaper(self) -> None:
         """Restore original Windows Terminal wallpaper on exit."""
