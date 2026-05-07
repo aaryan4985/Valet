@@ -8,9 +8,13 @@ from textual.widgets import Input, Static, RichLog
 from textual.binding import Binding
 from textual import work
 
-from valet.assistant import ValetAssistant
+from textual.containers import Horizontal, Container
+from textual.widgets import Input, Static, RichLog
+from textual.binding import Binding
+from textual import work
+import atexit
+
 from valet.config import config_manager
-from valet.commands import handle_git, handle_todo
 from valet.monitor import get_system_stats
 
 class ValetApp(App):
@@ -25,10 +29,11 @@ class ValetApp(App):
 
     def __init__(self):
         super().__init__()
-        self.assistant = ValetAssistant()
         self.user_name = config_manager.config.get("user_name", "Aaryan").lower()
         self.prompt_prefix = f"[bold green]{self.user_name}@valet[/] [bold blue]~[/] $ "
         self.log_widget = RichLog(id="terminal-log", markup=True, wrap=True)
+        self.original_wallpaper = None
+        self.original_opacity = None
 
     def compose(self) -> ComposeResult:
         with Container(id="main-area"):
@@ -40,11 +45,9 @@ class ValetApp(App):
     def on_mount(self) -> None:
         self.query_one(Input).focus()
         
-        # Check if wallpaper is set, if not, do it in background
-        if not config_manager.config.get("wallpaper_set"):
-            self.change_wallpaper(silent=True)
-            config_manager.config["wallpaper_set"] = True
-            config_manager.save_config()
+        # Backup and set wallpaper
+        atexit.register(self.restore_wallpaper)
+        self.backup_and_set_wallpaper()
 
         self.generate_startup()
 
@@ -75,8 +78,7 @@ class ValetApp(App):
             f"[bold cyan]Weather[/]: {stats['weather']}\n"
         )
         
-        greeting = self.assistant.generate_startup_greeting(stats)
-        
+        greeting = "System ready."
         self.call_from_thread(self.show_startup_greeting, neofetch, greeting)
 
     def show_startup_greeting(self, neofetch: str, greeting: str) -> None:
@@ -85,6 +87,9 @@ class ValetApp(App):
 
     def action_clear_chat(self) -> None:
         self.log_widget.clear()
+        
+    def on_unmount(self) -> None:
+        self.restore_wallpaper()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         user_input = event.value.strip()
@@ -133,11 +138,6 @@ class ValetApp(App):
             theme_name = parts[1]
             self.log_widget.write(f"Switched to theme '{theme_name}'.")
             self.app.dark = (theme_name != "light")
-            self.change_wallpaper_thread()
-            return
-        elif cmd == "wallpaper":
-            self.log_widget.write("Fetching new wallpaper from orangci/walls...")
-            self.change_wallpaper_thread()
             return
         elif cmd == "cd":
             try:
@@ -148,56 +148,41 @@ class ValetApp(App):
                 self.log_widget.write(f"[red]cd error:[/] {e}")
             return
 
-        # Hybrid Execution: OS Shell fallback to AI
-        self.execute_hybrid(user_input)
+        # Pure OS Shell Execution
+        self.execute_shell(user_input)
 
     @work(exclusive=True, thread=True)
-    def execute_hybrid(self, user_input: str) -> None:
-        """Run as shell command, if 'not recognized', pass to AI."""
+    def execute_shell(self, user_input: str) -> None:
+        """Run as a normal shell command."""
         try:
             result = subprocess.run(user_input, shell=True, capture_output=True, text=True)
-            
-            # Check if command failed entirely due to not existing
             err = result.stderr.strip()
             
-            # Windows "not recognized" or Linux "command not found"
-            if ("not recognized as an internal or external command" in err or 
-                "command not found" in err or 
-                "The term" in err and "is not recognized" in err): # PowerShell variant
-                
-                # It's a natural language command! Process via AI
-                self.call_from_thread(self.process_ai, user_input)
-                return
-                
-            # It was a valid shell command (even if it returned a different error)
             if result.stdout:
                 self.call_from_thread(self.log_widget.write, result.stdout.strip())
             if err:
                 self.call_from_thread(self.log_widget.write, f"[red]{err}[/]")
                 
         except Exception as e:
-            # Fallback to AI on arbitrary failure
-            self.call_from_thread(self.process_ai, user_input)
+            self.call_from_thread(self.log_widget.write, f"[red]Execution failed:[/] {e}")
             
-    @work(exclusive=True, thread=True)
-    def change_wallpaper_thread(self):
-        res = self.change_wallpaper(silent=False)
-        self.call_from_thread(self.log_widget.write, res)
-
-    @work(exclusive=True, thread=True)
-    def process_ai(self, user_input: str) -> None:
-        """Process AI requests without blocking UI."""
-        response = self.assistant.process_input(user_input)
-        self.call_from_thread(self.show_ai_response, response)
-
-    def show_ai_response(self, response: str) -> None:
-        self.log_widget.write(response)
-
-    def change_wallpaper(self, silent=False) -> str:
-        """Modify Windows Terminal settings.json safely via regex injection."""
+    def backup_and_set_wallpaper(self) -> str:
+        """Modify Windows Terminal settings.json safely via regex, backing up the original."""
         import random
         import urllib.request
+        import json
         try:
+            wt_settings_path = os.path.expandvars(r"%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json")
+            if os.path.exists(wt_settings_path):
+                with open(wt_settings_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Backup using simple regex extraction
+                bg_match = re.search(r'"backgroundImage"\s*:\s*"([^"]+)"', content)
+                op_match = re.search(r'"backgroundImageOpacity"\s*:\s*([0-9.]+)', content)
+                self.original_wallpaper = bg_match.group(1) if bg_match else None
+                self.original_opacity = op_match.group(1) if op_match else None
+                
             api_url = "https://api.github.com/repos/orangci/walls/contents/"
             import requests
             r = requests.get(api_url)
@@ -207,27 +192,47 @@ class ValetApp(App):
                     choice = random.choice(files)
                     dl_url = choice['download_url']
                     img_path = os.path.join(os.environ['TEMP'], choice['name'])
-                    img_path = img_path.replace("\\", "/") # Windows Terminal prefers forward slashes
+                    img_path = img_path.replace("\\", "/")
                     urllib.request.urlretrieve(dl_url, img_path)
                     
-                    wt_settings_path = os.path.expandvars(r"%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json")
                     if os.path.exists(wt_settings_path):
-                        with open(wt_settings_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                        
-                        # Remove existing backgroundImage and opacity from the file to avoid duplicates
+                        # Remove existing
                         content = re.sub(r'"backgroundImage"\s*:\s*".*?"\s*,?\s*', '', content)
                         content = re.sub(r'"backgroundImageOpacity"\s*:\s*[0-9.]+\s*,?\s*', '', content)
                         
-                        # Inject directly into defaults
+                        # Inject new
                         injection = f'"defaults": {{\n            "backgroundImage": "{img_path}",\n            "backgroundImageOpacity": 1.0,\n'
                         new_content = re.sub(r'"defaults"\s*:\s*\{', injection, content, count=1)
                         
                         with open(wt_settings_path, 'w', encoding='utf-8') as f:
                             f.write(new_content)
                             
-                        return f"Terminal wallpaper updated to {choice['name']}!" if not silent else ""
-                    return "Error: Windows Terminal settings.json not found." if not silent else ""
-            return "Failed to fetch wallpaper list from GitHub." if not silent else ""
+                        return f"Terminal wallpaper updated to {choice['name']}!"
+            return ""
         except Exception as e:
-            return f"Wallpaper change error: {e}" if not silent else ""
+            return ""
+
+    def restore_wallpaper(self) -> None:
+        """Restore original Windows Terminal wallpaper on exit."""
+        wt_settings_path = os.path.expandvars(r"%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json")
+        if not os.path.exists(wt_settings_path):
+            return
+            
+        try:
+            with open(wt_settings_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            # Remove current
+            content = re.sub(r'"backgroundImage"\s*:\s*".*?"\s*,?\s*', '', content)
+            content = re.sub(r'"backgroundImageOpacity"\s*:\s*[0-9.]+\s*,?\s*', '', content)
+            
+            # Inject original if it existed
+            if self.original_wallpaper is not None:
+                opacity = self.original_opacity if self.original_opacity is not None else "1.0"
+                injection = f'"defaults": {{\n            "backgroundImage": "{self.original_wallpaper}",\n            "backgroundImageOpacity": {opacity},\n'
+                content = re.sub(r'"defaults"\s*:\s*\{', injection, content, count=1)
+                
+            with open(wt_settings_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception:
+            pass
