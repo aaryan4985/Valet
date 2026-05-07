@@ -122,42 +122,62 @@ class ValetApp(App):
                     self.log_widget.write(f"[red]Workflow step failed:[/] {str(e)}")
             return
         
-        # Native commands
-        response = ""
+        # Custom Valet Commands
         if cmd == "clear":
             self.action_clear_chat()
             return
         elif cmd in ["exit", "quit"]:
             self.exit()
             return
-        elif cmd == "git":
-            response = handle_git()
-        elif cmd == "todo":
-            action = parts[1] if len(parts) > 1 else "list"
-            item = " ".join(parts[2:]) if len(parts) > 2 else ""
-            response = handle_todo(action, item)
-        elif cmd == "status":
-            try:
-                stats = get_system_stats()
-                response = f"CPU: {stats['cpu_percent']}% | RAM: {stats['ram_percent']}%\nUptime: {stats['uptime']}\nWeather: {stats['weather']}"
-            except Exception:
-                response = "Unable to fetch system status."
         elif cmd == "theme" and len(parts) > 1:
             theme_name = parts[1]
-            response = f"Switched to theme '{theme_name}'."
-            # We can also change wallpaper here if we want themed wallpapers
+            self.log_widget.write(f"Switched to theme '{theme_name}'.")
             self.app.dark = (theme_name != "light")
             self.change_wallpaper_thread()
+            return
         elif cmd == "wallpaper":
             self.log_widget.write("Fetching new wallpaper from orangci/walls...")
             self.change_wallpaper_thread()
             return
-        else:
-            self.process_ai(user_input)
+        elif cmd == "cd":
+            try:
+                from pathlib import Path
+                target = " ".join(parts[1:]) if len(parts) > 1 else str(Path.home())
+                os.chdir(target)
+            except Exception as e:
+                self.log_widget.write(f"[red]cd error:[/] {e}")
             return
+
+        # Hybrid Execution: OS Shell fallback to AI
+        self.execute_hybrid(user_input)
+
+    @work(exclusive=True, thread=True)
+    def execute_hybrid(self, user_input: str) -> None:
+        """Run as shell command, if 'not recognized', pass to AI."""
+        try:
+            result = subprocess.run(user_input, shell=True, capture_output=True, text=True)
             
-        if response:
-            self.log_widget.write(response)
+            # Check if command failed entirely due to not existing
+            err = result.stderr.strip()
+            
+            # Windows "not recognized" or Linux "command not found"
+            if ("not recognized as an internal or external command" in err or 
+                "command not found" in err or 
+                "The term" in err and "is not recognized" in err): # PowerShell variant
+                
+                # It's a natural language command! Process via AI
+                self.call_from_thread(self.process_ai, user_input)
+                return
+                
+            # It was a valid shell command (even if it returned a different error)
+            if result.stdout:
+                self.call_from_thread(self.log_widget.write, result.stdout.strip())
+            if err:
+                self.call_from_thread(self.log_widget.write, f"[red]{err}[/]")
+                
+        except Exception as e:
+            # Fallback to AI on arbitrary failure
+            self.call_from_thread(self.process_ai, user_input)
             
     @work(exclusive=True, thread=True)
     def change_wallpaper_thread(self):
