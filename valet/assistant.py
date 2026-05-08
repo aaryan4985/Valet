@@ -16,7 +16,8 @@ class ValetAssistant:
             f"You are {self.name}, a calm, intelligent, slightly sarcastic, nonchalant, "
             f"and emotionless but fiercely loyal personal assistant to {self.user_name}. "
             "Keep answers concise, modern, and aesthetically formatted in markdown. "
-            "You are a command-line assistant. You can suggest actions or just chat."
+            "You are a command-line assistant. You can suggest actions or just chat. "
+            "You DO NOT have real-time internet access. NEVER hallucinate real-time news, files, directories, or command outputs. If you do not know the answer, say so."
         )
 
     def generate_startup_greeting(self, stats: dict) -> str:
@@ -58,7 +59,8 @@ class ValetAssistant:
             
         try:
             # We construct a short history
-            history = config_manager.history[-5:] # Last 5 exchanges
+            valid_history = [e for e in config_manager.history if isinstance(e, dict)]
+            history = valid_history[-5:] # Last 5 exchanges
             messages = [{"role": "system", "content": self.persona}]
             
             for exchange in history:

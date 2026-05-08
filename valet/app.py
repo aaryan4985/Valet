@@ -38,19 +38,24 @@ class ValetApp(App):
         self.original_opacity = None
         self.command_history = config_manager.history
         self.history_index = len(self.command_history)
+        self.workflow_state = None
+        from valet.assistant import ValetAssistant
+        self.assistant = ValetAssistant()
 
     def action_history_up(self) -> None:
         if self.command_history and self.history_index > 0:
             self.history_index -= 1
             input_widget = self.query_one(Input)
-            input_widget.value = self.command_history[self.history_index]
+            item = self.command_history[self.history_index]
+            input_widget.value = item if isinstance(item, str) else item.get("user", "")
             input_widget.cursor_position = len(input_widget.value)
 
     def action_history_down(self) -> None:
         if self.command_history and self.history_index < len(self.command_history) - 1:
             self.history_index += 1
             input_widget = self.query_one(Input)
-            input_widget.value = self.command_history[self.history_index]
+            item = self.command_history[self.history_index]
+            input_widget.value = item if isinstance(item, str) else item.get("user", "")
             input_widget.cursor_position = len(input_widget.value)
         elif self.history_index == len(self.command_history) - 1:
             self.history_index = len(self.command_history)
@@ -98,7 +103,10 @@ class ValetApp(App):
         input_widget.value = ""
         
         if user_input:
-            if not self.command_history or self.command_history[-1] != user_input:
+            last_cmd = self.command_history[-1] if self.command_history else None
+            if isinstance(last_cmd, dict):
+                last_cmd = last_cmd.get("user", "")
+            if not self.command_history or last_cmd != user_input:
                 self.command_history.append(user_input)
                 config_manager.save_history()
             self.history_index = len(self.command_history)
@@ -158,8 +166,116 @@ class ValetApp(App):
                 self.log_widget.write(f"[red]cd error:[/] {e}")
             return
 
+        # Check if we are in workflow approval state
+        if self.workflow_state is not None:
+            self.handle_workflow_approval(user_input)
+            return
+
+        import shutil
+        windows_builtins = {"dir", "echo", "type", "copy", "move", "ren", "md", "cd", "mkdir", "rmdir", "del", "erase", "cls", "start", "set", "call"}
+        is_shell = cmd in windows_builtins or shutil.which(cmd) is not None
+        if not is_shell:
+            if os.path.exists(cmd) or cmd.startswith(".") or cmd.startswith("/") or cmd.startswith("\\") or ":" in cmd:
+                is_shell = True
+                
+        if cmd == "valet":
+            is_shell = False
+                
+        if not is_shell:
+            if user_input.lower().startswith("valet ") or user_input.lower() == "valet":
+                workflow_prompt = user_input[5:].strip()
+                if not workflow_prompt:
+                    self.log_widget.write(f"[magenta]Valet:[/] Yes? Try 'valet <prompt>' to generate a workflow.")
+                    return
+                self.log_widget.write(f"[dim]Analyzing workflow request with AI...[/]")
+                self.generate_workflow_thread(workflow_prompt)
+            else:
+                self.log_widget.write(f"[dim]Asking AI Assistant...[/]")
+                self.chat_with_assistant_thread(user_input)
+            return
+
         # Pure OS Shell Execution
         self.execute_shell(user_input)
+
+    @work(exclusive=True, thread=True)
+    def generate_workflow_thread(self, prompt: str, modification: str = None) -> None:
+        try:
+            # We import here to avoid circular imports if any
+            from valet.workflow import workflow_engine
+            workflow = workflow_engine.generate_workflow(prompt, self.workflow_state, modification)
+            self.workflow_state = workflow
+            self.call_from_thread(self.display_workflow, workflow)
+        except Exception as e:
+            self.call_from_thread(self.log_widget.write, f"[red]Workflow Error:[/] {e}")
+            self.workflow_state = None
+
+    def display_workflow(self, workflow: dict) -> None:
+        risk_color = "green"
+        if workflow.get("risk", "low") == "medium":
+            risk_color = "yellow"
+        elif workflow.get("risk", "low") == "high":
+            risk_color = "red"
+            
+        out = f"\n[bold underline]AI Workflow Plan[/]\n"
+        out += f"[bold]Title:[/] {workflow.get('title', 'Unknown')}\n"
+        out += f"[bold]Summary:[/] {workflow.get('summary', '')}\n"
+        out += f"[bold]Risk:[/] [bold {risk_color}]{workflow.get('risk', 'low').upper()}[/]\n\n"
+        
+        for step in workflow.get("steps", []):
+            danger = "[bold red](DANGEROUS)[/] " if step.get("dangerous") else ""
+            out += f"  {step.get('id', 0)}. {danger}[cyan]{step.get('title', 'Step')}[/]\n"
+            out += f"     [dim]> {step.get('command', '')}[/]\n"
+            
+        out += "\n[bold yellow]Do you approve this workflow? (y/n or type modification)[/]\n"
+        self.log_widget.write(out)
+
+    def handle_workflow_approval(self, user_input: str) -> None:
+        inp = user_input.lower()
+        if inp in ["y", "yes", "approve", "ok", "sure", "go"]:
+            self.log_widget.write("[bold green]Workflow Approved. Executing...[/]")
+            workflow = self.workflow_state
+            self.workflow_state = None
+            self.execute_workflow_thread(workflow)
+        elif inp in ["n", "no", "cancel", "reject", "stop", "abort"]:
+            self.log_widget.write("[bold red]Workflow Cancelled.[/]")
+            self.workflow_state = None
+        else:
+            self.log_widget.write(f"[dim]Modifying workflow based on: '{user_input}'...[/]")
+            self.generate_workflow_thread(prompt="", modification=user_input)
+
+    @work(exclusive=True, thread=True)
+    def execute_workflow_thread(self, workflow: dict) -> None:
+        for step in workflow.get("steps", []):
+            cmd = step.get("command", "")
+            self.call_from_thread(self.log_widget.write, f"\n[bold blue]Executing Step {step.get('id')}:[/] {step.get('title')}")
+            self.call_from_thread(self.log_widget.write, f"[dim]> {cmd}[/]")
+            try:
+                import subprocess
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                
+                if result.stdout:
+                    self.call_from_thread(self.log_widget.write, result.stdout.strip())
+                if result.stderr:
+                    self.call_from_thread(self.log_widget.write, f"[red]{result.stderr.strip()}[/]")
+                    
+                if result.returncode != 0:
+                    self.call_from_thread(self.log_widget.write, f"[bold red]Step failed with exit code {result.returncode}. Stopping workflow.[/]")
+                    break
+                else:
+                    self.call_from_thread(self.log_widget.write, f"[bold green]Step completed.[/]")
+                    
+            except Exception as e:
+                self.call_from_thread(self.log_widget.write, f"[bold red]Execution error:[/] {e}")
+                break
+        self.call_from_thread(self.log_widget.write, "\n[bold green]Workflow execution finished.[/]\n")
+
+    @work(exclusive=True, thread=True)
+    def chat_with_assistant_thread(self, prompt: str) -> None:
+        try:
+            response = self.assistant.process_input(prompt)
+            self.call_from_thread(self.log_widget.write, f"\n[bold magenta]Valet:[/] {response}\n")
+        except Exception as e:
+            self.call_from_thread(self.log_widget.write, f"[red]Assistant Error:[/] {e}")
 
     @work(exclusive=True, thread=True)
     def execute_shell(self, user_input: str) -> None:
