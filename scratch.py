@@ -1,9 +1,13 @@
-import os, re
-p = os.path.expandvars(r'%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json')
-with open(p, 'r', encoding='utf-8') as f:
-    c = f.read()
-c = re.sub(r'"backgroundImage"\s*:\s*".*?"\s*,?\s*', '', c)
-c = re.sub(r'"backgroundImageOpacity"\s*:\s*[0-9.]+\s*,?\s*', '', c)
-with open(p, 'w', encoding='utf-8') as f:
-    f.write(c)
-print('Wallpaper wiped.')
+import json
+import os
+
+wt_settings_path = os.path.expandvars(r"%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json")
+
+with open(wt_settings_path, 'r', encoding='utf-8') as f:
+    try:
+        data = json.load(f)
+    except json.JSONDecodeError:
+        # If it's invalid due to our regex bug, let's fix it by regex
+        pass
+
+# Wait, if our regex bug made it invalid, json.load will fail!

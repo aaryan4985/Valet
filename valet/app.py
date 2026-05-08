@@ -250,29 +250,40 @@ class ValetApp(App):
             
         self.call_from_thread(self.log_widget.write, "\n[dim]Ready.[/]\n")
             
+    def get_target_profile(self, data):
+        # By targeting defaults, the wallpaper is guaranteed to show in any shell
+        # We ensure it's safely removed on exit to not pollute other profiles permanently.
+        if "profiles" not in data:
+            data["profiles"] = {}
+        if "defaults" not in data["profiles"]:
+            data["profiles"]["defaults"] = {}
+        return data["profiles"]["defaults"]
+        
     def backup_and_set_wallpaper(self) -> str:
-        """Modify Windows Terminal settings.json safely via regex, backing up the original."""
+        """Modify Windows Terminal settings.json safely via json, targeting default profile."""
         import random
         import urllib.request
         import json
         try:
-            wt_settings_path = os.path.expandvars(r"%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json")
-            if os.path.exists(wt_settings_path):
-                with open(wt_settings_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+            wt_settings_path = os.path.expandvars(r"%LOCALAPPDATA%\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json")
+            if not os.path.exists(wt_settings_path):
+                return ""
                 
-                # Backup using simple regex extraction
-                bg_match = re.search(r'"backgroundImage"\s*:\s*"([^"]+)"', content)
-                op_match = re.search(r'"backgroundImageOpacity"\s*:\s*([0-9.]+)', content)
+            with open(wt_settings_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
                 
-                bg_path = bg_match.group(1) if bg_match else ""
-                # If the current wallpaper is a Valet temporary file, do NOT back it up!
-                if "Temp" in bg_path or "temp" in bg_path.lower() or "voyager" in bg_path:
-                    self.original_wallpaper = None
-                    self.original_opacity = None
-                else:
-                    self.original_wallpaper = bg_path if bg_path else None
-                    self.original_opacity = op_match.group(1) if op_match else None
+            profile_to_mod = self.get_target_profile(data)
+
+            bg_path = profile_to_mod.get("backgroundImage", "")
+            op_val = profile_to_mod.get("backgroundImageOpacity", 1.0)
+
+            # Do not backup if it's already a Valet wallpaper
+            if "valet_wallpaper" in bg_path.lower():
+                self.original_wallpaper = None
+                self.original_opacity = None
+            else:
+                self.original_wallpaper = bg_path if bg_path else None
+                self.original_opacity = op_val
                 
             api_url = "https://api.github.com/repos/orangci/walls/contents/"
             import requests
@@ -282,33 +293,25 @@ class ValetApp(App):
                 if files:
                     choice = random.choice(files)
                     dl_url = choice['download_url']
-                    img_path = os.path.join(os.environ['TEMP'], choice['name'])
-                    img_path = img_path.replace("\\", "/")
+                    img_path = str(config_manager.config_dir / f"valet_wallpaper_{choice['name']}").replace("\\", "/")
                     urllib.request.urlretrieve(dl_url, img_path)
                     
-                    if os.path.exists(wt_settings_path):
-                        # Remove existing
-                        content = re.sub(r'"backgroundImage"\s*:\s*".*?"\s*,?\s*', '', content)
-                        content = re.sub(r'"backgroundImageOpacity"\s*:\s*[0-9.]+\s*,?\s*', '', content)
+                    profile_to_mod["backgroundImage"] = img_path
+                    profile_to_mod["backgroundImageOpacity"] = 0.4
+                    
+                    with open(wt_settings_path, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=4)
                         
-                        # Inject new
-                        injection = f'"defaults": {{\n            "backgroundImage": "{img_path}",\n            "backgroundImageOpacity": 1.0,\n'
-                        new_content = re.sub(r'"defaults"\s*:\s*\{', injection, content, count=1)
-                        
-                        with open(wt_settings_path, 'w', encoding='utf-8') as f:
-                            f.write(new_content)
-                            
-                        return f"Terminal wallpaper updated to {choice['name']}!"
+                    return f"Terminal wallpaper updated to {choice['name']}!"
             return ""
         except Exception as e:
-            return ""
+            return f""
 
     def change_wallpaper(self) -> str:
-        """Modify Windows Terminal settings.json safely via regex injection."""
+        """Modify Windows Terminal settings.json safely via json."""
         import random
         import urllib.request
         import json
-        import re
         import os
         try:
             api_url = "https://api.github.com/repos/orangci/walls/contents/"
@@ -319,23 +322,21 @@ class ValetApp(App):
                 if files:
                     choice = random.choice(files)
                     dl_url = choice['download_url']
-                    img_path = os.path.join(os.environ['TEMP'], choice['name'])
-                    img_path = img_path.replace("\\", "/")
+                    img_path = str(config_manager.config_dir / f"valet_wallpaper_{choice['name']}").replace("\\", "/")
                     urllib.request.urlretrieve(dl_url, img_path)
                     
-                    wt_settings_path = os.path.expandvars(r"%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json")
+                    wt_settings_path = os.path.expandvars(r"%LOCALAPPDATA%\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json")
                     if os.path.exists(wt_settings_path):
                         with open(wt_settings_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                        
-                        content = re.sub(r'"backgroundImage"\s*:\s*".*?"\s*,?\s*', '', content)
-                        content = re.sub(r'"backgroundImageOpacity"\s*:\s*[0-9.]+\s*,?\s*', '', content)
-                        
-                        injection = f'"defaults": {{\n            "backgroundImage": "{img_path}",\n            "backgroundImageOpacity": 1.0,\n'
-                        new_content = re.sub(r'"defaults"\s*:\s*\{', injection, content, count=1)
+                            data = json.load(f)
+                            
+                        profile_to_mod = self.get_target_profile(data)
+                            
+                        profile_to_mod["backgroundImage"] = img_path
+                        profile_to_mod["backgroundImageOpacity"] = 0.4
                         
                         with open(wt_settings_path, 'w', encoding='utf-8') as f:
-                            f.write(new_content)
+                            json.dump(data, f, indent=4)
                             
                         return f"Terminal wallpaper updated to {choice['name']}!"
             return "Failed to fetch wallpaper list from GitHub."
@@ -344,25 +345,43 @@ class ValetApp(App):
 
     def restore_wallpaper(self) -> None:
         """Restore original Windows Terminal wallpaper on exit."""
-        wt_settings_path = os.path.expandvars(r"%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json")
+        import json
+        import os
+        wt_settings_path = os.path.expandvars(r"%LOCALAPPDATA%\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json")
         if not os.path.exists(wt_settings_path):
             return
             
         try:
             with open(wt_settings_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+                data = json.load(f)
                 
-            # Remove current
-            content = re.sub(r'"backgroundImage"\s*:\s*".*?"\s*,?\s*', '', content)
-            content = re.sub(r'"backgroundImageOpacity"\s*:\s*[0-9.]+\s*,?\s*', '', content)
-            
-            # Inject original if it existed
+            profile_to_mod = self.get_target_profile(data)
+                
             if self.original_wallpaper is not None:
-                opacity = self.original_opacity if self.original_opacity is not None else "1.0"
-                injection = f'"defaults": {{\n            "backgroundImage": "{self.original_wallpaper}",\n            "backgroundImageOpacity": {opacity},\n'
-                content = re.sub(r'"defaults"\s*:\s*\{', injection, content, count=1)
+                profile_to_mod["backgroundImage"] = self.original_wallpaper
+                profile_to_mod["backgroundImageOpacity"] = float(self.original_opacity) if self.original_opacity is not None else 1.0
+            else:
+                profile_to_mod.pop("backgroundImage", None)
+                profile_to_mod.pop("backgroundImageOpacity", None)
+                
+            # Also clean up defaults if we accidentally polluted it previously
+            defaults = data.get("profiles", {}).get("defaults", {})
+            if isinstance(defaults, dict):
+                bg = defaults.get("backgroundImage", "")
+                if "valet_wallpaper" in bg.lower() or "temp" in bg.lower():
+                    defaults.pop("backgroundImage", None)
+                    defaults.pop("backgroundImageOpacity", None)
+                    
+            # And clean up specific profile if we touched it in older versions
+            default_guid = data.get("defaultProfile", "")
+            for p in data.get("profiles", {}).get("list", []):
+                if p.get("guid") == default_guid:
+                    bg = p.get("backgroundImage", "")
+                    if "valet_wallpaper" in bg.lower() or "temp" in bg.lower():
+                        p.pop("backgroundImage", None)
+                        p.pop("backgroundImageOpacity", None)
                 
             with open(wt_settings_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+                json.dump(data, f, indent=4)
         except Exception:
             pass
