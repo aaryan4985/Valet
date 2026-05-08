@@ -25,6 +25,8 @@ class ValetApp(App):
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit", show=True),
         Binding("ctrl+l", "clear_chat", "Clear", show=True),
+        Binding("up", "history_up", "Previous Command", show=False),
+        Binding("down", "history_down", "Next Command", show=False),
     ]
 
     def __init__(self):
@@ -34,6 +36,26 @@ class ValetApp(App):
         self.log_widget = RichLog(id="terminal-log", markup=True, wrap=True)
         self.original_wallpaper = None
         self.original_opacity = None
+        self.command_history = config_manager.history
+        self.history_index = len(self.command_history)
+
+    def action_history_up(self) -> None:
+        if self.command_history and self.history_index > 0:
+            self.history_index -= 1
+            input_widget = self.query_one(Input)
+            input_widget.value = self.command_history[self.history_index]
+            input_widget.cursor_position = len(input_widget.value)
+
+    def action_history_down(self) -> None:
+        if self.command_history and self.history_index < len(self.command_history) - 1:
+            self.history_index += 1
+            input_widget = self.query_one(Input)
+            input_widget.value = self.command_history[self.history_index]
+            input_widget.cursor_position = len(input_widget.value)
+        elif self.history_index == len(self.command_history) - 1:
+            self.history_index = len(self.command_history)
+            input_widget = self.query_one(Input)
+            input_widget.value = ""
 
     def update_prompt(self) -> None:
         cwd = os.getcwd()
@@ -59,7 +81,7 @@ class ValetApp(App):
         self.backup_and_set_wallpaper()
         
         # Clean terminal start
-        self.log_widget.write(f"Valet Terminal v0.1.0\nType commands as normal.\n")
+        self.run_startup_sequence()
 
     def action_clear_chat(self) -> None:
         self.log_widget.clear()
@@ -74,6 +96,12 @@ class ValetApp(App):
             
         input_widget = self.query_one(Input)
         input_widget.value = ""
+        
+        if user_input:
+            if not self.command_history or self.command_history[-1] != user_input:
+                self.command_history.append(user_input)
+                config_manager.save_history()
+            self.history_index = len(self.command_history)
         
         # Write user command to log
         self.log_widget.write(f"{self.prompt_prefix}{user_input}")
@@ -152,6 +180,75 @@ class ValetApp(App):
     def change_wallpaper_thread(self):
         res = self.change_wallpaper()
         self.call_from_thread(self.log_widget.write, res)
+        
+    @work(exclusive=True, thread=True)
+    def run_startup_sequence(self):
+        ascii_art = [
+            " __      __   _      _   ",
+            " \\ \\    / /  | |    | |  ",
+            "  \\ \\  / /_ _| | ___| |_ ",
+            "   \\ \\/ / _` | |/ _ \\ __|",
+            "    \\  / (_| | |  __/ |_ ",
+            "     \\/ \\__,_|_|\\___|\\__|",
+            "                         "
+        ]
+        # Animated ASCII
+        for line in ascii_art:
+            self.call_from_thread(self.log_widget.write, f"[bold cyan]{line}[/]")
+            time.sleep(0.05)
+            
+        time.sleep(0.1)
+        
+        self.call_from_thread(self.log_widget.write, "[dim]Gathering system telemetry...[/]")
+        stats = get_system_stats()
+        
+        # GitHub activity (mocked or fetched)
+        import requests
+        github_activity = "No recent activity"
+        try:
+            github_username = config_manager.config.get("github_username", "aaryan4985")
+            r = requests.get(f"https://api.github.com/users/{github_username}/events/public", timeout=2)
+            if r.status_code == 200:
+                events = r.json()
+                if events:
+                    github_activity = f"Last action: {events[0]['type']} at {events[0]['repo']['name']}"
+        except:
+            pass
+
+        # Productivity Summary
+        todos_count = len(config_manager.todos)
+        productivity = f"You have {todos_count} pending tasks." if todos_count > 0 else "All caught up on tasks!"
+
+        # AI Greeting
+        greeting = f"Welcome back, {self.user_name.capitalize()}."
+        try:
+            prompt = f"Write a very short 1 sentence greeting for a developer named {self.user_name}. Keep it cool and terminal-like."
+            from groq import Groq
+            client = Groq(api_key=config_manager.config["groq_api_key"])
+            response = client.chat.completions.create(
+                model=config_manager.config["llm_model"],
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=40
+            )
+            greeting = response.choices[0].message.content.strip()
+        except:
+            pass
+
+        startup_text = f"""
+[bold yellow]System Status:[/] CPU: {stats['cpu_percent']}% | RAM: {stats['ram_used']}/{stats['ram_total']}
+[bold green]Uptime:[/] {stats['uptime']}
+[bold blue]Weather:[/] {stats['weather']}
+[bold magenta]GitHub:[/] {github_activity}
+[bold red]Productivity:[/] {productivity}
+
+[bold bright_white]AI:[/] {greeting}
+"""
+        self.call_from_thread(self.log_widget.write, "")
+        for line in startup_text.strip().split('\n'):
+            self.call_from_thread(self.log_widget.write, line)
+            time.sleep(0.05)
+            
+        self.call_from_thread(self.log_widget.write, "\n[dim]Ready.[/]\n")
             
     def backup_and_set_wallpaper(self) -> str:
         """Modify Windows Terminal settings.json safely via regex, backing up the original."""
