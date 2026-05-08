@@ -1,10 +1,10 @@
-# 🎩 Valet Terminal
+#  Valet Terminal
 
 > A premium, aesthetic, modern custom terminal and personal assistant.
 
 Valet is an elegant terminal interface built with Python and Textual. It gives you a calm, intelligent, slightly sarcastic, nonchalant, and fiercely loyal personal assistant right in your terminal. Designed with a minimal, dark, cyber-aesthetic, Valet bridges the gap between system management and AI-powered interactions.
 
-## ✨ Features
+## Features
 
 - **Beautiful TUI:** Built with Textual for a clean, modern, and fluid terminal UI.
 - **System Monitoring:** Live updates of CPU, RAM, Disk, and Network usage.
@@ -13,7 +13,7 @@ Valet is an elegant terminal interface built with Python and Textual. It gives y
 - **Persistent Memory:** Remembers your tasks and preferences across sessions.
 - **Git Awareness:** Instantly check repository status from your command line.
 
-## 🚀 Installation
+## Installation
 
 Ensure you have Python 3.11+ installed.
 
@@ -22,7 +22,7 @@ pip install valet-terminal
 ```
 *(Or install locally by cloning the repo and running `pip install -e .`)*
 
-## 🛠️ Usage
+## Usage
 
 Simply type:
 ```bash
@@ -38,14 +38,14 @@ valet
 - `roast` - Have Valet humble you.
 - `exit` (or `Ctrl+C`) - Quit Valet.
 
-## ⚙️ Configuration
+## Configuration
 
 Configuration is automatically created at `~/.config/valet/config.json`. You can tweak the theme, prompt style, and assistant name.
 
-## 🤝 Contributing
+## Contributing
 
 Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
 
-## 📜 License
+##  License
 
 MIT
